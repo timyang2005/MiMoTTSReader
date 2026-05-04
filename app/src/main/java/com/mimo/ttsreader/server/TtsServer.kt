@@ -33,15 +33,16 @@ class TtsServer(
 
         Log.d(TAG, "Request: $method $uri")
 
-        return try {
+        val response = try {
             when {
                 uri == "/" && method == Method.GET -> serveIndex()
                 uri == "/tts" -> handleTtsRequest(session)
+                uri == "/api/reader/tts/stream" -> handleReaderTtsStream(session)
                 uri == "/api/status" && method == Method.GET -> serveStatus()
                 uri == "/api/config" && method == Method.GET -> serveConfig()
                 uri == "/api/voices" && method == Method.GET -> serveVoices()
                 uri == "/api/legado/rule" && method == Method.GET -> serveLegadoRule()
-                uri == "/api/test" && method == Method.POST -> handleTestTts(session)
+                uri == "/api/test" -> handleTestTts(session)
                 uri.startsWith("/web/") -> serveStaticFile(uri)
                 else -> newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
             }
@@ -51,6 +52,71 @@ class TtsServer(
                 Response.Status.INTERNAL_ERROR,
                 MIME_PLAINTEXT,
                 "Internal Server Error: ${e.message}"
+            )
+        }
+
+        response.addHeader("Access-Control-Allow-Origin", "*")
+        response.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.addHeader("Access-Control-Allow-Headers", "Content-Type")
+        return response
+    }
+
+    private fun handleReaderTtsStream(session: IHTTPSession): Response {
+        val config = configProvider()
+
+        if (config.mimoApiKey.isBlank()) {
+            return newFixedLengthResponse(
+                Response.Status.FORBIDDEN,
+                MIME_PLAINTEXT,
+                "API Key not configured"
+            )
+        }
+
+        val params = parseQueryParams(session)
+        val text = params["text"] ?: params["speakText"] ?: ""
+        val speedStr = params["speed"] ?: params["speakSpeed"] ?: "5"
+        val speed = speedStr.toDoubleOrNull()?.toInt() ?: 5
+
+        if (text.isBlank()) {
+            return newFixedLengthResponse(
+                Response.Status.BAD_REQUEST,
+                MIME_PLAINTEXT,
+                "Text parameter is required"
+            )
+        }
+
+        Log.i(TAG, "Reader TTS: text='${text.take(50)}...', speed=$speed, voice=${config.voice}")
+
+        return try {
+            val audioData = runBlocking {
+                ttsClient.synthesize(
+                    apiKey = config.mimoApiKey,
+                    text = text,
+                    voice = config.voice,
+                    model = config.model,
+                    userMessage = config.userMessage,
+                    dialect = config.dialect,
+                    styleTag = config.styleTag,
+                    speed = speed
+                )
+            }
+
+            val wavData = AudioUtils.validateAndFixWav(audioData)
+
+            Log.i(TAG, "Reader TTS success: ${wavData.size} bytes")
+
+            newFixedLengthResponse(
+                Response.Status.OK,
+                "audio/wav",
+                ByteArrayInputStream(wavData),
+                wavData.size.toLong()
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Reader TTS failed", e)
+            newFixedLengthResponse(
+                Response.Status.INTERNAL_ERROR,
+                MIME_PLAINTEXT,
+                "TTS Error: ${e.message}"
             )
         }
     }
@@ -121,14 +187,23 @@ class TtsServer(
             return newFixedLengthResponse(Response.Status.FORBIDDEN, "application/json", """{"error":"API Key not configured"}""")
         }
 
-        val files = HashMap<String, String>()
-        session.parseBody(files)
-        val body = files["postData"] ?: ""
-        val testText = try {
-            val obj = JsonParser.parseString(body).asJsonObject
-            obj.get("text")?.asString ?: "你好，这是一个测试语音。"
-        } catch (_: Exception) {
-            "你好，这是一个测试语音。"
+        val testText = when (session.method) {
+            Method.GET -> {
+                val params = parseQueryParams(session)
+                params["text"] ?: "你好，这是一个测试语音。"
+            }
+            Method.POST -> {
+                val files = HashMap<String, String>()
+                session.parseBody(files)
+                val body = files["postData"] ?: ""
+                try {
+                    val obj = JsonParser.parseString(body).asJsonObject
+                    obj.get("text")?.asString ?: "你好，这是一个测试语音。"
+                } catch (_: Exception) {
+                    "你好，这是一个测试语音。"
+                }
+            }
+            else -> "你好，这是一个测试语音。"
         }
 
         return try {
@@ -177,8 +252,21 @@ class TtsServer(
     private fun serveLegadoRule(): Response {
         val config = configProvider()
         val port = config.serverPort
-        val ruleUrl = "http://localhost:$port/tts,{\"method\":\"POST\",\"body\":\"tex={{java.encodeURI(java.encodeURI(speakText))}}&spd={{String((speakSpeed+5)/10+4)}}&_res_tag_=audio\"}"
-        val json = """{"url":"${ruleUrl.replace("\"", "\\\"")}","port":$port,"voice":"${config.voice}"}"""
+        val rule = hashMapOf<String, Any>(
+            "concurrentRate" to "5",
+            "contentType" to "audio/wav",
+            "enabledCookieJar" to false,
+            "header" to "",
+            "id" to System.currentTimeMillis(),
+            "jsLib" to "",
+            "lastUpdateTime" to System.currentTimeMillis(),
+            "loginCheckJs" to "",
+            "loginUi" to "",
+            "loginUrl" to "",
+            "name" to "MiMo TTS",
+            "url" to "http://localhost:$port/api/reader/tts/stream?text={{java.encodeURI(speakText)}}&speed={{speakSpeed}}"
+        )
+        val json = gson.toJson(rule)
         return newFixedLengthResponse(Response.Status.OK, "application/json", json)
     }
 
@@ -222,6 +310,16 @@ class TtsServer(
             Log.w(TAG, "Static file not found: $assetPath")
             newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "File not found: $assetPath")
         }
+    }
+
+    private fun parseQueryParams(session: IHTTPSession): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        session.parms?.forEach { (key, value) ->
+            if (value != null) {
+                result[key] = value
+            }
+        }
+        return result
     }
 
     private fun parseAllParams(session: IHTTPSession): Map<String, String> {

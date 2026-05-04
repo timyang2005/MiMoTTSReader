@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
 
     private var webView: WebView? = null
+    private var logUpdateJob: kotlinx.coroutines.Job? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,6 +40,7 @@ class MainActivity : AppCompatActivity() {
             settings.allowFileAccess = true
             settings.allowContentAccess = true
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            settings.mediaPlaybackRequiresUserGesture = false
             webViewClient = WebViewClient()
             webChromeClient = WebChromeClient()
             addJavascriptInterface(WebAppInterface(), "Android")
@@ -66,11 +68,14 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             TtsService.logs.collect { logs ->
                 webView?.post {
-                    val json = Gson().toJson(logs.take(50))
-                    webView?.evaluateJavascript(
-                        "if(typeof onLogsUpdate==='function'){onLogsUpdate($json);}",
-                        null
-                    )
+                    try {
+                        val json = Gson().toJson(logs.take(50))
+                        webView?.evaluateJavascript(
+                            "if(typeof onLogsUpdate==='function'){onLogsUpdate($json);}",
+                            null
+                        )
+                    } catch (_: Exception) {
+                    }
                 }
             }
         }
@@ -84,10 +89,23 @@ class MainActivity : AppCompatActivity() {
                 "if(typeof onServiceStateChanged==='function'){onServiceStateChanged($running);}",
                 null
             )
+            refreshLogs()
+        }
+    }
+
+    private fun refreshLogs() {
+        try {
+            val json = Gson().toJson(TtsService.logs.value.take(50))
+            webView?.evaluateJavascript(
+                "if(typeof onLogsUpdate==='function'){onLogsUpdate($json);}",
+                null
+            )
+        } catch (_: Exception) {
         }
     }
 
     override fun onDestroy() {
+        logUpdateJob?.cancel()
         webView?.destroy()
         webView = null
         super.onDestroy()
@@ -181,7 +199,7 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun getDialects(): String {
             return Gson().toJson(VoiceRegistry.DIALECT_STYLES.keys.filter { it.isNotEmpty() }
-                .plus("") // include empty option
+                .plus("")
                 .toList())
         }
 
@@ -189,17 +207,31 @@ class MainActivity : AppCompatActivity() {
         fun getLegadoRule(): String {
             val config = ConfigManager.getConfig(this@MainActivity)
             val port = config.serverPort
-            return "http://localhost:$port/tts,{\"method\":\"POST\",\"body\":\"tex={{java.encodeURI(java.encodeURI(speakText))}}&spd={{String((speakSpeed+5)/10+4)}}&_res_tag_=audio\"}"
+            val rule = hashMapOf<String, Any>(
+                "concurrentRate" to "5",
+                "contentType" to "audio/wav",
+                "enabledCookieJar" to false,
+                "header" to "",
+                "id" to System.currentTimeMillis(),
+                "jsLib" to "",
+                "lastUpdateTime" to System.currentTimeMillis(),
+                "loginCheckJs" to "",
+                "loginUi" to "",
+                "loginUrl" to "",
+                "name" to "MiMo TTS",
+                "url" to "http://localhost:$port/api/reader/tts/stream?text={{java.encodeURI(speakText)}}&speed={{speakSpeed}}"
+            )
+            return Gson().toJson(rule)
         }
 
         @JavascriptInterface
         fun importToLegado() {
-            val rule = getLegadoRule()
+            val ruleJson = getLegadoRule()
             try {
                 val intent = Intent().apply {
                     action = Intent.ACTION_SEND
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, rule)
+                    putExtra(Intent.EXTRA_TEXT, ruleJson)
                 }
                 runOnUiThread {
                     startActivity(Intent.createChooser(intent, "Import to Legado Reader"))
@@ -207,6 +239,59 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun testTts(text: String) {
+            if (!TtsService.isRunning.value) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "请先启动服务", Toast.LENGTH_SHORT).show()
+                }
+                return
+            }
+
+            val config = ConfigManager.getConfig(this@MainActivity)
+            if (config.mimoApiKey.isBlank()) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "请先配置 API Key", Toast.LENGTH_SHORT).show()
+                }
+                return
+            }
+
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val client = com.mimo.ttsreader.api.MiMoTtsClient()
+                    val audioData = client.synthesize(
+                        apiKey = config.mimoApiKey,
+                        text = text,
+                        voice = config.voice,
+                        model = config.model,
+                        userMessage = config.userMessage,
+                        dialect = config.dialect,
+                        styleTag = config.styleTag,
+                        speed = 5
+                    )
+                    val wavData = com.mimo.ttsreader.util.AudioUtils.validateAndFixWav(audioData)
+
+                    val file = java.io.File.createTempFile("tts_test_", ".wav", cacheDir)
+                    file.writeBytes(wavData)
+                    file.deleteOnExit()
+
+                    runOnUiThread {
+                        webView?.evaluateJavascript(
+                            "if(typeof onTestResult==='function'){onTestResult('file://${file.absolutePath}');}",
+                            null
+                        )
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        webView?.evaluateJavascript(
+                            "if(typeof onTestError==='function'){onTestError('${e.message?.replace("'", "\\'")}');}",
+                            null
+                        )
+                    }
                 }
             }
         }
