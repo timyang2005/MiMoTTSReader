@@ -9,6 +9,7 @@ import com.mimo.ttsreader.model.VoiceConfig
 import com.mimo.ttsreader.model.VoiceRegistry
 import com.mimo.ttsreader.util.AudioUtils
 import fi.iki.elonen.NanoHTTPD
+import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.net.URLDecoder
@@ -81,16 +82,18 @@ class TtsServer(
         Log.i(TAG, "TTS request: text='${text.take(50)}...', speed=$speed, voice=${config.voice}")
 
         return try {
-            val audioData = ttsClient.synthesize(
-                apiKey = config.mimoApiKey,
-                text = text,
-                voice = config.voice,
-                model = config.model,
-                userMessage = config.userMessage,
-                dialect = config.dialect,
-                styleTag = config.styleTag,
-                speed = speed
-            )
+            val audioData = runBlocking {
+                ttsClient.synthesize(
+                    apiKey = config.mimoApiKey,
+                    text = text,
+                    voice = config.voice,
+                    model = config.model,
+                    userMessage = config.userMessage,
+                    dialect = config.dialect,
+                    styleTag = config.styleTag,
+                    speed = speed
+                )
+            }
 
             val wavData = AudioUtils.validateAndFixWav(audioData)
 
@@ -129,16 +132,18 @@ class TtsServer(
         }
 
         return try {
-            val audioData = ttsClient.synthesize(
-                apiKey = config.mimoApiKey,
-                text = testText,
-                voice = config.voice,
-                model = config.model,
-                userMessage = config.userMessage,
-                dialect = config.dialect,
-                styleTag = config.styleTag,
-                speed = 5
-            )
+            val audioData = runBlocking {
+                ttsClient.synthesize(
+                    apiKey = config.mimoApiKey,
+                    text = testText,
+                    voice = config.voice,
+                    model = config.model,
+                    userMessage = config.userMessage,
+                    dialect = config.dialect,
+                    styleTag = config.styleTag,
+                    speed = 5
+                )
+            }
             val wavData = AudioUtils.validateAndFixWav(audioData)
             newFixedLengthResponse(
                 Response.Status.OK,
