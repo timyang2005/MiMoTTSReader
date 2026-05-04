@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MiMo TTS Reader</string>
+    <string name="channel_name">MiMo TTS Service</string>
+    <string name="channel_description">TTS service running status</string>
+</resources>

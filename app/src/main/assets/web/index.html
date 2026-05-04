@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MiMo TTS Reader</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>MiMo TTS Reader</h1>
+            <div class="status-badge" id="statusBadge">
+                <span class="status-dot"></span>
+                <span class="status-text">已停止</span>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <section class="card service-control">
+                <h2>服务控制</h2>
+                <div class="service-info">
+                    <div class="info-row">
+                        <span class="label">服务地址</span>
+                        <span class="value" id="serverUrl">-</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">运行状态</span>
+                        <span class="value" id="serviceStatus">未启动</span>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button class="btn btn-primary" id="btnStart" onclick="startService()">启动服务</button>
+                    <button class="btn btn-danger" id="btnStop" onclick="stopService()" disabled>停止服务</button>
+                    <button class="btn btn-secondary" id="btnRestart" onclick="restartService()" disabled>重启服务</button>
+                </div>
+            </section>
+
+            <section class="card config-section">
+                <h2>基础配置</h2>
+                <div class="form-group">
+                    <label for="apiKey">MiMo API Key <span class="required">*</span></label>
+                    <div class="input-with-btn">
+                        <input type="password" id="apiKey" placeholder="输入你的 MiMo API Key">
+                        <button class="btn-icon" onclick="toggleApiKeyVisibility()" title="显示/隐藏">
+                            <span id="eyeIcon">👁</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="voiceSelect">音色选择</label>
+                    <select id="voiceSelect" onchange="onVoiceChange()"></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="modelSelect">模型选择</label>
+                    <select id="modelSelect">
+                        <option value="mimo-v2.5-tts">MiMo-V2.5-TTS (预置音色)</option>
+                        <option value="mimo-v2.5-tts-voicedesign">MiMo-V2.5-TTS-VoiceDesign (音色设计)</option>
+                        <option value="mimo-v2.5-tts-voiceclone">MiMo-V2.5-TTS-VoiceClone (音色复刻)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="dialectSelect">方言风格</label>
+                    <select id="dialectSelect">
+                        <option value="">无</option>
+                        <option value="东北话">东北话</option>
+                        <option value="四川话">四川话</option>
+                        <option value="河南话">河南话</option>
+                        <option value="粤语">粤语</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="styleTag">风格标签</label>
+                    <input type="text" id="styleTag" placeholder="如: 开心/悲伤/温柔/高冷/唱歌">
+                    <small class="hint">支持: 开心/悲伤/愤怒/温柔/高冷/活泼/严肃/慵懒/磁性/东北话/粤语/唱歌 等</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="userMessage">自定义指令</label>
+                    <textarea id="userMessage" rows="3" placeholder="如: 用温柔的语气朗读，语速稍慢"></textarea>
+                    <small class="hint">自然语言控制语音风格，留空则使用默认风格</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="serverPort">服务端口</label>
+                    <input type="number" id="serverPort" value="9966" min="1024" max="65535">
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input type="checkbox" id="autoStart">
+                        开机自动启动服务
+                    </label>
+                </div>
+
+                <button class="btn btn-primary btn-block" onclick="saveConfig()">保存配置</button>
+            </section>
+
+            <section class="card legado-section">
+                <h2>阅读APP (Legado) 集成</h2>
+                <div class="legado-info">
+                    <p>将以下朗读规则添加到阅读APP的在线朗读引擎中：</p>
+                    <div class="rule-display">
+                        <code id="legadoRule">-</code>
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-accent" onclick="copyLegadoRule()">复制规则</button>
+                        <button class="btn btn-accent" onclick="importToLegado()">分享到阅读APP</button>
+                    </div>
+                </div>
+                <div class="legado-help">
+                    <h3>使用说明</h3>
+                    <ol>
+                        <li>启动本APP的TTS服务</li>
+                        <li>复制上方朗读规则</li>
+                        <li>打开阅读APP → 我的 → 朗读引擎 → 在线朗读</li>
+                        <li>粘贴规则并保存</li>
+                        <li>在阅读界面选择该朗读引擎即可</li>
+                    </ol>
+                </div>
+            </section>
+
+            <section class="card test-section">
+                <h2>语音测试</h2>
+                <div class="form-group">
+                    <label for="testText">测试文本</label>
+                    <textarea id="testText" rows="3" placeholder="输入测试文本">你好，这是一个语音合成测试。</textarea>
+                </div>
+                <button class="btn btn-primary btn-block" id="btnTest" onclick="testTts()">测试合成</button>
+                <div class="audio-player" id="audioPlayerContainer" style="display:none;">
+                    <audio id="audioPlayer" controls></audio>
+                </div>
+            </section>
+
+            <section class="card log-section">
+                <h2>运行日志</h2>
+                <div class="log-container" id="logContainer">
+                    <div class="log-empty">暂无日志</div>
+                </div>
+                <button class="btn btn-secondary btn-block" onclick="clearLogs()" style="margin-top:8px;">清空日志</button>
+            </section>
+
+            <section class="card advanced-section">
+                <h2>高级设置</h2>
+                <div class="button-group vertical">
+                    <button class="btn btn-secondary btn-block" onclick="requestBatteryOptimization()">忽略电池优化</button>
+                </div>
+                <small class="hint">建议开启电池优化忽略，防止服务被系统杀掉</small>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <p>MiMo TTS Reader v1.0.0</p>
+        </footer>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
