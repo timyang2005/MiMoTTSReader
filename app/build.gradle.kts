@@ -3,6 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val keystoreFile = file("../keystore/mimo_tts_release.jks")
+val keystoreExists = keystoreFile.exists()
+
 android {
     namespace = "com.mimo.ttsreader"
     compileSdk = 34
@@ -11,10 +14,21 @@ android {
         applicationId = "com.mimo.ttsreader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            if (keystoreExists) {
+                storeFile = keystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "mimo2025tts"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "mimo_tts"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: "mimo2025tts"
+            }
+        }
     }
 
     buildTypes {
@@ -25,9 +39,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (keystoreExists) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false
+            versionNameSuffix = "-debug"
         }
     }
 
