@@ -3,9 +3,14 @@ name: Build APK
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -45,8 +50,23 @@ jobs:
 
     - name: Create Release on Tag
       if: startsWith(github.ref, 'refs/tags/v')
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
+        generate_release_notes: false
+        body: |
+          ## MiMo TTS Reader ${{ github.ref_name }}
+
+          ### 📦 下载说明
+          - `app-debug.apk` - Debug 版本（含调试信息，体积较大）
+          - `app-release-unsigned.apk` - Release 版本（未签名，需自行签名或直接安装）
+
+          ### 📖 使用方法
+          1. 下载 APK 安装到手机
+          2. 填入 MiMo API Key
+          3. 启动服务
+          4. 复制朗读规则到阅读APP
+
+          详细使用说明请参考 [README](https://github.com/timyang2005/MiMoTTSReader#readme)
         files: |
           app/build/outputs/apk/debug/*.apk
           app/build/outputs/apk/release/*.apk
